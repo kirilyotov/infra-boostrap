@@ -1,0 +1,36 @@
+---
+- name: Configure Ubuntu master hostname and mDNS
+  hosts: master_node
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: master_hostname_mdns
+
+- name: Bootstrap Linux nodes for K3s
+  hosts: devices
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages needed by K3s installer
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+        state: present
+
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Disable swap in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(.*\s+swap\s+.*)$'
+        replace: '# \1'

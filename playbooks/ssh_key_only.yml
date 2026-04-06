@@ -1,0 +1,75 @@
+---
+- name: Migrate password-based hosts to SSH key login
+  hosts: "{{ target_hosts | default('password_only') }}"
+  gather_facts: true
+  become: true
+
+  vars:
+    controller_public_key_path: "{{ vault_public_key_path | default(lookup('env', 'HOME') ~ '/.ssh/id_ed25519.pub', true) }}"
+    disable_password_auth: false
+
+  pre_tasks:
+    - name: Ensure host currently has password auth configured
+      ansible.builtin.assert:
+        that:
+          - ansible_password is defined
+          - ansible_password | length > 0
+        fail_msg: "ansible_password is not defined for {{ inventory_hostname }}"
+      when: not (disable_password_auth | bool)
+
+    - name: Ensure controller public key file exists
+      ansible.builtin.stat:
+        path: "{{ controller_public_key_path }}"
+      register: public_key_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Fail if public key file is missing
+      ansible.builtin.assert:
+        that:
+          - public_key_stat.stat.exists
+        fail_msg: "Public key not found at {{ controller_public_key_path }}"
+
+  tasks:
+    - name: Ensure .ssh directory exists for remote user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Install controller public key into authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ lookup('file', controller_public_key_path) }}"
+        state: present
+
+    - name: Enforce key-only SSH authentication via drop-in (optional)
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-ansible-key-only.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+        validate: '/usr/sbin/sshd -t -f %s'
+      when: disable_password_auth | bool
+      notify: Restart ssh service
+
+    - name: Override cloud-init SSH password auth setting (optional)
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config.d/50-cloud-init.conf
+        regexp: '^\s*PasswordAuthentication\s+'
+        line: 'PasswordAuthentication no'
+        validate: '/usr/sbin/sshd -t -f %s'
+      when: disable_password_auth | bool
+      notify: Restart ssh service
+
+  handlers:
+    - name: Restart ssh service
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

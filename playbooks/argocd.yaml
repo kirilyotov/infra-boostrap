@@ -1,0 +1,19 @@
+---
+- name: Install Argo CD on K3s server
+  hosts: master_node
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Create argocd namespace
+      ansible.builtin.command: k3s kubectl create namespace argocd
+      register: argocd_ns
+      changed_when: "'created' in argocd_ns.stdout"
+      failed_when: argocd_ns.rc != 0 and 'AlreadyExists' not in argocd_ns.stderr
+
+    - name: Install Argo CD manifests
+      ansible.builtin.command: >-
+        k3s kubectl apply -n argocd
+        -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+      register: argocd_install
+      changed_when: "'configured' in argocd_install.stdout or 'created' in argocd_install.stdout"

@@ -1,0 +1,84 @@
+---
+- name: Validate host architecture for K3s
+  hosts: devices
+  gather_facts: true
+
+  tasks:
+    - name: Ensure architecture is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] in ['x86_64', 'aarch64', 'arm64', 'armv7l']
+        fail_msg: "Unsupported architecture {{ ansible_facts['architecture'] }} for K3s"
+        success_msg: "Architecture {{ ansible_facts['architecture'] }} is supported"
+
+- name: Install K3s server (hybrid node)
+  hosts: master_node
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Install K3s server
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /etc/systemd/system/k3s.service
+
+    - name: Ensure K3s server service is enabled and running
+      ansible.builtin.systemd:
+        name: k3s
+        enabled: true
+        state: started
+
+    - name: Read cluster node token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_node_token_raw
+
+    - name: Share token as fact for later plays
+      ansible.builtin.set_fact:
+        k3s_node_token: "{{ k3s_node_token_raw.content | b64decode | trim }}"
+
+- name: Install K3s agent on worker nodes
+  hosts: worker_node
+  gather_facts: true
+  become: true
+
+  vars:
+    k3s_server_host: "{{ groups['master_node'][0] }}"
+    k3s_server_endpoint: "{{ hostvars[k3s_server_host].ansible_facts['default_ipv4']['address'] | default(hostvars[k3s_server_host].ansible_host | default(k3s_server_host), true) }}"
+    k3s_server_url: "https://{{ k3s_server_endpoint }}:6443"
+    k3s_join_token: "{{ hostvars[k3s_server_host].k3s_node_token }}"
+
+  tasks:
+    - name: Ensure join token exists
+      ansible.builtin.assert:
+        that:
+          - groups['master_node'] is defined
+          - groups['master_node'] | length > 0
+          - k3s_join_token is defined
+          - k3s_join_token | length > 0
+        fail_msg: "K3s join token is missing from master_node server"
+
+    - name: Install K3s agent
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | K3S_URL='{{ k3s_server_url }}' K3S_TOKEN='{{ k3s_join_token }}' sh -
+      args:
+        creates: /etc/systemd/system/k3s-agent.service
+
+    - name: Ensure K3s agent env uses expected server URL and token
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/k3s-agent.service.env
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          K3S_TOKEN='{{ k3s_join_token }}'
+          K3S_URL='{{ k3s_server_url }}'
+      register: k3s_agent_env
+
+    - name: Ensure K3s agent service is enabled and running
+      ansible.builtin.systemd:
+        name: k3s-agent
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if k3s_agent_env.changed else 'started' }}"
