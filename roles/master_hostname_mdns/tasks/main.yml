@@ -1,0 +1,29 @@
+---
+- name: Set stable hostname for master node
+  ansible.builtin.hostname:
+    name: "{{ node_hostname }}"
+
+- name: Ensure hostname is present in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\\.0\\.1\\.1\\s+'
+    line: "127.0.1.1 {{ node_hostname }}"
+
+- name: Install mDNS packages on Debian/Ubuntu
+  ansible.builtin.apt:
+    name:
+      - avahi-daemon
+      - libnss-mdns
+    state: present
+    update_cache: true
+  when:
+    - install_mdns_support | bool
+    - ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure avahi-daemon is enabled and running
+  ansible.builtin.service:
+    name: avahi-daemon
+    enabled: true
+    state: started
+  when: install_mdns_support | bool
+  notify: Restart avahi-daemon
