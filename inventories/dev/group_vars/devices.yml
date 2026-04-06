@@ -1,0 +1,5 @@
+ansible_connection: ssh
+ansible_python_interpreter: auto_silent
+ansible_become: true
+ansible_become_method: sudo
+ansible_user: homelab

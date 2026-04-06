@@ -1,0 +1,4 @@
+# ansible_password: "{{ vault_ansible_password_master_node_01 }}"
+ansible_become_password: "{{ vault_become_password_master_node_01 }}"
+ansible_ssh_private_key_file: "{{ vault_private_key_master_node_01 }}"
+node_hostname: "{{ vault_hostname_master_node_01 }}"
