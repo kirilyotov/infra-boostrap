@@ -1,0 +1,34 @@
+# Python virtual env and cache
+venv/
+__pycache__/
+*.pyc
+
+# Ansible runtime output
+*.retry
+*.log
+
+# Local secret files
+.vault_pass
+*.vault_pass
+vault_pass.txt
+secret*.yml
+secret*.yaml
+
+# Inventory/local overrides
+inventory.local.ini
+inventories/*/host_vars/*secrets*.yml
+inventories/*/host_vars/*secrets*.yaml
+inventories/*/group_vars/*secrets*.yml
+inventories/*/group_vars/*secrets*.yaml
+
+# Private keys and certs
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor/OS
+.DS_Store
+.vscode/
+
+k3s.yaml
