@@ -1,0 +1,26 @@
+---
+- name: Verify Argo CD ApplicationSet Controller
+  hosts: master_node
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Get ApplicationSet controller pod status
+      ansible.builtin.command: >
+        k3s kubectl -n argocd get pods -l app.kubernetes.io/name=argocd-applicationset-controller
+        -o jsonpath='{.items[0].status.phase}'
+      register: controller_status
+      changed_when: false
+
+    - name: Show controller status
+      ansible.builtin.debug:
+        msg: "ApplicationSet controller status: {{ controller_status.stdout }}"
+
+    - name: Get last 5 lines of controller logs
+      ansible.builtin.command: >
+        k3s kubectl -n argocd logs -l app.kubernetes.io/name=argocd-applicationset-controller --tail=5
+      register: controller_logs
+      changed_when: false
+
+    - name: Show controller logs
+      ansible.builtin.debug:
+        var: controller_logs.stdout_lines

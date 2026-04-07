@@ -13,6 +13,7 @@ __pycache__/
 vault_pass.txt
 secret*.yml
 secret*.yaml
+inventories/dev/group_vars/all/secrets.yml
 
 # Inventory/local overrides
 inventory.local.ini

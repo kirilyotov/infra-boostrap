@@ -11,9 +11,75 @@
       changed_when: "'created' in argocd_ns.stdout"
       failed_when: argocd_ns.rc != 0 and 'AlreadyExists' not in argocd_ns.stderr
 
+    - name: Create minimal ApplicationSet CRD first
+      ansible.builtin.copy:
+        src: ../files/argocd/applicationset-crd.yaml
+        dest: /tmp/applicationset-crd.yaml
+      register: appset_crd_copy
+
+    - name: Apply minimal ApplicationSet CRD
+      ansible.builtin.command: >
+        k3s kubectl apply
+        -f /tmp/applicationset-crd.yaml
+      register: appset_crd
+      changed_when: "'created' in appset_crd.stdout"
+      failed_when: false
+
     - name: Install Argo CD manifests
-      ansible.builtin.command: >-
+      ansible.builtin.command: >
         k3s kubectl apply -n argocd
         -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
       register: argocd_install
       changed_when: "'configured' in argocd_install.stdout or 'created' in argocd_install.stdout"
+      failed_when: argocd_install.rc != 0 and 'Too long' not in argocd_install.stderr
+
+    - name: Wait for ApplicationSet controller to be ready
+      ansible.builtin.shell: |
+        k3s kubectl rollout status deployment/argocd-applicationset-controller \
+          -n argocd --timeout=5m 2>/dev/null || echo "Controller starting..."
+      register: controller_status
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure GitHub repo credentials are defined
+      ansible.builtin.assert:
+        that:
+          - vault_argocd_repo_url is defined
+          - vault_argocd_repo_url | length > 0
+          - vault_github_username is defined
+          - vault_github_username | length > 0
+          - vault_github_pat is defined
+          - vault_github_pat | length > 0
+        fail_msg: Missing vault_argocd_repo_url, vault_github_username, or vault_github_pat
+
+    - name: Create Argo CD GitHub repository secret
+      ansible.builtin.shell: |
+        k3s kubectl -n argocd apply -f - <<'EOF'
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: repo-github
+          namespace: argocd
+          labels:
+            argocd.argoproj.io/secret-type: repository
+        stringData:
+          type: git
+          url: "{{ vault_argocd_repo_url }}"
+          username: "{{ vault_github_username }}"
+          password: "{{ vault_github_pat }}"
+        EOF
+      register: argocd_repo_secret
+      changed_when: "'created' in argocd_repo_secret.stdout or 'configured' in argocd_repo_secret.stdout"
+      no_log: true
+
+    - name: Render root-application manifest
+      ansible.builtin.template:
+        src: ../files/argocd/root-application.yaml
+        dest: /tmp/root-application.yaml
+
+    - name: Apply root application to cluster
+      ansible.builtin.command: >-
+        k3s kubectl apply -n argocd
+        -f /tmp/root-application.yaml
+      register: root_app
+      changed_when: "'configured' in root_app.stdout or 'created' in root_app.stdout"

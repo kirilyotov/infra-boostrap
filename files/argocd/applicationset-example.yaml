@@ -1,0 +1,31 @@
+---
+# Example ApplicationSet - generates multiple applications from a template
+# This is optional; uncomment or modify as needed for your use case
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: guestbook-appset
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - cluster: in-cluster
+            env: dev
+          - cluster: in-cluster
+            env: staging
+  template:
+    metadata:
+      name: "guestbook-{{ cluster }}-{{ env }}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/argoproj/argocd-example-apps.git
+        path: guestbook
+        targetRevision: HEAD
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "guestbook-{{ env }}"
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
